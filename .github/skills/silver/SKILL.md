@@ -1,3 +1,8 @@
+---
+name: silver
+description: "Use when working on the silver layer, data cleaning, transformation logic, streaming aggregations, temporal enrichment, or quality rules for this project. Use this skill to design or review silver jobs, transformation logic, and partitioned data persistence."
+---
+
 # Skill: Silver Layer
 
 Descrição
