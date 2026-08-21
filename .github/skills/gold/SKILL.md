@@ -1,6 +1,6 @@
 ---
 name: gold
-description: "Use when designing, implementing, or reviewing the gold layer of this medalion architecture: PySpark data marts from Silver Parquet for aircraft activity, airline counts, average altitude and speed, flight duration, or airport flight counts."
+description: "Use when designing, implementing, or reviewing the gold layer of this medalion architecture: PySpark data marts from Silver Parquet for aircraft activity, airline counts, average altitude and speed, or monitored-area duration."
 ---
 
 # Skill: Gold Layer
@@ -31,15 +31,13 @@ src/gold/
   aircraft_activity.py
   airline_counts.py
   altitude_speed.py
-  flight_duration.py
-  airport_flights.py
+  monitored_area_duration.py
 
 data/gold/
   aircraft_activity/
   airline_counts/
   altitude_speed/
-  flight_duration/
-  airport_flights/
+  monitored_area_duration/
 ```
 
 - Cada mart deve ter seu próprio arquivo PySpark executável.
@@ -77,24 +75,16 @@ Arquivo: `src/gold/altitude_speed.py`.
 - Ignorar valores nulos; documentar unidade de altitude e velocidade conforme a origem OpenSky.
 - Se houver filtro operacional, excluir registros em solo (`on_ground = true`) somente quando isso fizer parte do requisito e deixar o filtro explícito.
 
-### 4. Tempo médio entre entrada e saída de voo
+### 4. Tempo médio entre entrada e saída da área monitorada
 
-Arquivo: `src/gold/flight_duration.py`.
+Arquivo: `src/gold/monitored_area_duration.py`.
 
-- A fonte atual é um snapshot de posições e não contém eventos confiáveis de entrada e saída nem um identificador de voo.
-- Não calcular duração usando a diferença entre `time_position` e `last_contact`: isso mede latência do registro, não tempo de voo.
-- Para habilitar este mart, exigir uma tabela de eventos com `flight_id`, `entry_ts` e `exit_ts`, ou uma regra de sessão explicitamente aprovada.
-- Após validar a fonte, calcular `duration_seconds = unix_timestamp(exit_ts) - unix_timestamp(entry_ts)`, descartar intervalos nulos ou negativos, e agregar `avg_flight_duration_seconds` na granularidade documentada.
-- Registrar a quantidade de voos usados, descartados e ainda sem saída.
-
-### 5. Quantidade de voos por aeroporto
-
-Arquivo: `src/gold/airport_flights.py`.
-
-- Granularidade: uma linha por aeroporto e período.
-- Métrica: `flight_count = countDistinct(flight_id)`; não usar `countDistinct(icao24)` como substituto de voos sem declarar a aproximação.
-- A fonte atual não contém `airport` nem `flight_id`. Exigir uma dimensão de referência, dados de trajetória enriquecidos ou eventos de voo com aeroporto de origem/destino.
-- Se houver origem e destino, definir se a contagem é de decolagens, pousos ou ambas e usar uma coluna `airport_role` para evitar dupla interpretação.
+- A fonte atual é um snapshot de posições e não contém eventos explícitos de entrada e saída da área monitorada.
+- Definir entrada como o primeiro registro válido de uma sessão e saída como o último registro válido antes do encerramento da sessão, usando uma regra de sessão configurável e documentada, como um intervalo máximo de inatividade.
+- Não calcular duração usando a diferença entre `time_position` e `last_contact`: isso mede latência do registro, não permanência na área monitorada.
+- Para habilitar este mart, exigir uma regra de sessão aprovada ou uma tabela de eventos com `icao24` (ou outro identificador de aeronave), `entry_ts` e `exit_ts`.
+- Após validar a fonte, calcular `duration_seconds = unix_timestamp(exit_ts) - unix_timestamp(entry_ts)`, descartar intervalos nulos ou negativos, e agregar `avg_area_duration_seconds` na granularidade documentada.
+- Registrar a quantidade de sessões usadas, descartadas e ainda sem saída.
 
 ## Procedimento de implementação
 
@@ -119,13 +109,13 @@ Todo script deve aceitar, por argparse ou configuração equivalente:
 - `--timezone` (padrão `UTC`)
 - `--shuffle_partitions` (padrão compatível com o ambiente local)
 
-Marts que dependem de enriquecimento devem aceitar também o caminho da dimensão ou dos eventos, por exemplo `--airline_reference_path`, `--flight_events_path` ou `--airport_reference_path`.
+O mart de duração na área monitorada deve aceitar também a configuração da regra de sessão ou o caminho dos eventos de entrada e saída, por exemplo `--session_gap` ou `--area_events_path`.
 
 ## Qualidade e validação
 
 - Testar cada função `build_*` com DataFrames pequenos e determinísticos.
 - Cobrir duplicidade de snapshots, `icao24` nulo, medidas nulas, timestamps fora de ordem e mudanças de dia/hora.
-- Verificar que `countDistinct(icao24)` não é apresentado como quantidade de voos.
+- Verificar que `countDistinct(icao24)` não é apresentado como quantidade de voos e que a duração representa sessões na área monitorada.
 - Verificar reconciliação: a soma por hora/dimensão deve corresponder à mesma definição de entidade usada no mart.
 - Validar que nenhum mart dependente de coluna ausente seja gravado silenciosamente.
 - Executar um teste de integração local que leia Parquet de amostra, grave em diretório temporário e confira schema, partições e contagens.
@@ -133,12 +123,12 @@ Marts que dependem de enriquecimento devem aceitar também o caminho da dimensã
 
 ## Checklist de aceite
 
-- [ ] Existe um arquivo PySpark por mart obrigatório.
+- [ ] Existe um arquivo PySpark por cada um dos quatro marts obrigatórios.
 - [ ] Lógica comum está centralizada e não duplicada.
 - [ ] Código e dados estão separados em `src/gold/` e `data/gold/`.
 - [ ] Cada mart tem granularidade, chave e unidade documentadas.
-- [ ] Companhia aérea, aeroporto, `flight_id` e eventos de entrada/saída são validados antes do uso.
-- [ ] Os cinco indicadores não confundem aeronaves, snapshots e voos.
+- [ ] Companhia aérea e eventos ou regras de entrada/saída da área monitorada são validados antes do uso.
+- [ ] Os quatro indicadores não confundem aeronaves, snapshots, sessões na área monitorada e voos.
 - [ ] Escrita, particionamento, backfill e idempotência estão definidos.
 - [ ] Testes unitários e de integração verificam agregações e contrato.
 - [ ] Logs e falhas de schema são observáveis.
@@ -152,4 +142,4 @@ python src/gold/aircraft_activity.py \
   --run_date 2026-08-18
 ```
 
-Para `airline_counts`, `flight_duration` e `airport_flights`, não executar a materialização até que as respectivas colunas ou tabelas de referência estejam disponíveis e validadas.
+Para `airline_counts`, não executar a materialização até que a coluna ou dimensão de companhia aérea esteja disponível e validada. Para `monitored_area_duration`, não materializar até que a regra de sessão ou os eventos de entrada e saída estejam disponíveis e validados.

@@ -1,4 +1,5 @@
 from pathlib import Path
+import os
 
 from pyspark.sql import SparkSession
 import pyspark.sql.functions as sf
@@ -22,7 +23,8 @@ def create_spark_session():
     return (
         SparkSession.builder
         .appName("BronzeKafkaConsumer")
-        .config("spark.jars.packages", "org.apache.spark:spark-sql-kafka-0-10_2.12:3.5.0")
+        .config("spark.jars.packages", "org.apache.spark:spark-sql-kafka-0-10_2.13:4.2.0")
+        #.config("spark.jars.packages", "org.apache.spark:spark-sql-kafka-0-10_2.12:3.5.0")
         .config("spark.sql.shuffle.partitions", "4")
         .getOrCreate()
     )
@@ -60,12 +62,16 @@ def get_json_schema():
 
 def main():
     spark = create_spark_session()
+    query = None
 
     try:
         df = (
             spark.readStream
             .format("kafka")
-            .option("kafka.bootstrap.servers", "kafka:29092")
+            .option(
+                "kafka.bootstrap.servers",
+                os.getenv("KAFKA_BOOTSTRAP_SERVERS", "kafka:29092"),
+            )
             .option("subscribe", "plane_data")
             .option("startingOffsets", "earliest")
             .load()
@@ -112,10 +118,12 @@ def main():
             .option("checkpointLocation", BRONZE_CHECKPOINT_PATH)
             .start()
         )
-
+        print("Dados Gravados!")
         query.awaitTermination()
 
     finally:
+        if query is not None:
+            query.stop()
         spark.stop()
 
 
