@@ -1,7 +1,6 @@
 import argparse
 import os
 import signal
-import shutil
 import subprocess
 import sys
 import time
@@ -9,11 +8,7 @@ from pathlib import Path
 
 
 PROJECT_ROOT = Path(__file__).resolve().parent
-SCRIPTS = ("producer.py", "bronze.py", "silver.py")
-SILVER_STATE_PATHS = (
-    PROJECT_ROOT / "data" / "silver" / "checkpoint",
-    PROJECT_ROOT / "data" / "silver" / "output",
-)
+SCRIPTS = ("producer.py", "bronze.py")
 processes = []
 
 
@@ -34,29 +29,20 @@ def stop_processes(*_args):
         if time.monotonic() >= deadline:
             signal_processes(signal.SIGKILL)
             break
+            spark.stop()
         time.sleep(0.1)
 
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Executa producer, bronze e silver simultaneamente."
+        description="Executa producer e bronze simultaneamente."
     )
     parser.add_argument(
         "--kafka-bootstrap-servers",
         default="localhost:9092",
         help="Endereco do broker Kafka (padrao: localhost:9092).",
     )
-    parser.add_argument(
-        "--reset-silver-state",
-        action="store_true",
-        help="Recria a Silver removendo output e checkpoint antes de iniciar.",
-    )
     args = parser.parse_args()
-
-    if args.reset_silver_state:
-        for path in SILVER_STATE_PATHS:
-            shutil.rmtree(path, ignore_errors=True)
-        print("Estado da Silver removido; os dados serao reprocessados.", flush=True)
 
     environment = os.environ.copy()
     environment["KAFKA_BOOTSTRAP_SERVERS"] = args.kafka_bootstrap_servers

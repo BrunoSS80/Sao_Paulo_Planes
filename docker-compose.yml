@@ -1,4 +1,81 @@
 services:
+  airflow-db:
+    image: postgres:16
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: airflow
+      POSTGRES_PASSWORD: airflow
+      POSTGRES_DB: airflow
+    volumes:
+      - airflow-db-volume:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U airflow -d airflow"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  airflow-init:
+    image: apache/airflow:2.10.5
+    depends_on:
+      airflow-db:
+        condition: service_healthy
+    environment: &airflow-common-env
+      AIRFLOW__CORE__EXECUTOR: LocalExecutor
+      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@airflow-db:5432/airflow
+      AIRFLOW__CORE__FERNET_KEY: ""
+      AIRFLOW__CORE__LOAD_EXAMPLES: "false"
+      AIRFLOW__API__AUTH_BACKENDS: airflow.api.auth.backend.session,airflow.api.auth.backend.basic_auth
+      AIRFLOW__SCHEDULER__ENABLE_HEALTH_CHECK: "true"
+      _PIP_ADDITIONAL_REQUIREMENTS: ""
+    user: "${AIRFLOW_UID:-50000}:0"
+    volumes: &airflow-common-volumes
+      - ./dags:/opt/airflow/dags
+      - ./src:/opt/airflow/src
+      - ./logs:/opt/airflow/logs
+      - ./plugins:/opt/airflow/plugins
+    entrypoint: /bin/bash
+    command:
+      - -c
+      - |
+        airflow db migrate
+        airflow users create \
+          --username "$${AIRFLOW_ADMIN_USERNAME:-airflow}" \
+          --password "$${AIRFLOW_ADMIN_PASSWORD:-airflow}" \
+          --firstname Airflow \
+          --lastname Admin \
+          --role Admin \
+          --email admin@example.com || true
+
+  airflow-webserver:
+    image: apache/airflow:2.10.5
+    restart: unless-stopped
+    depends_on:
+      airflow-init:
+        condition: service_completed_successfully
+    environment: *airflow-common-env
+    user: "${AIRFLOW_UID:-50000}:0"
+    volumes: *airflow-common-volumes
+    ports:
+      - "8080:8080"
+    command: webserver
+    healthcheck:
+      test: ["CMD-SHELL", "curl --fail http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+
+  airflow-scheduler:
+    image: apache/airflow:2.10.5
+    restart: unless-stopped
+    depends_on:
+      airflow-init:
+        condition: service_completed_successfully
+    environment: *airflow-common-env
+    user: "${AIRFLOW_UID:-50000}:0"
+    volumes: *airflow-common-volumes
+    command: scheduler
+
   zookeeper:
     image: wurstmeister/zookeeper:latest
     restart: unless-stopped
@@ -50,6 +127,44 @@ services:
     depends_on:
       kafka:
         condition: service_healthy
+
+  spark-master:
+    image: apache/spark:3.5.1
+    container_name: spark-master
+    restart: unless-stopped
+    command: bash -c "/opt/spark/bin/spark-class org.apache.spark.deploy.master.Master"
+    environment:
+      - SPARK_HOME=/opt/spark
+      - SPARK_NO_DAEMONIZE=true
+      - PYTHONPATH=/opt/spark/python:/opt/spark/python/lib/py4j-0.10.9.7-src.zip
+      - PYSPARK_PYTHON=python3
+      - PYSPARK_DRIVER_PYTHON=python3
+    ports:
+      - "8081:8080" 
+      - "7077:7077" 
+    volumes:
+      - ./src:/opt/spark/src
+      - ./data:/opt/spark/data
+
+  spark-worker:
+    image: apache/spark:3.5.1
+    container_name: spark-worker
+    restart: unless-stopped
+    depends_on:
+      - spark-master
+    command: bash -c "/opt/spark/bin/spark-class org.apache.spark.deploy.worker.Worker spark://spark-master:7077"
+    environment:
+      - SPARK_HOME=/opt/spark
+      - SPARK_WORKER_CORES=2
+      - SPARK_WORKER_MEMORY=2g
+      - SPARK_NO_DAEMONIZE=true
+      - PYTHONPATH=/opt/spark/python:/opt/spark/python/lib/py4j-0.10.9.7-src.zip
+      - PYSPARK_PYTHON=python3
+    ports:
+      - "8082:8081"
+    volumes:
+      - ./src:/opt/spark/src
+      - ./data:/opt/spark/data
     
   jupyter:
     image: jupyter/pyspark-notebook:latest
@@ -62,5 +177,19 @@ services:
     environment:
       JUPYTER_ENABLE_LAB: "yes"
     depends_on:
-      kafka:
-        condition: service_healthy
+      - kafka
+      - spark-master
+
+  dashboard:
+    build:
+      context: .
+      dockerfile: dashboard/Dockerfile
+    container_name: sao-paulo-planes-dashboard
+    restart: unless-stopped
+    ports:
+      - "8501:8501"
+    volumes:
+      - ./data:/app/data:ro
+
+volumes:
+  airflow-db-volume:

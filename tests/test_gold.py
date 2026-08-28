@@ -1,6 +1,9 @@
+import importlib.util
 import sys
-from datetime import datetime
+from datetime import date, datetime
 from pathlib import Path
+
+import pandas as pd
 
 GOLD_DIR = Path(__file__).resolve().parents[1] / "src" / "gold"
 sys.path.insert(0, str(GOLD_DIR))
@@ -86,3 +89,23 @@ def test_duration_closes_stale_last_session_and_keeps_current_session_open(snaps
     assert result[0].avg_area_duration_seconds == 1200.0
     assert result[0].sessions_used == 2
     assert sessions.filter("has_exit = 0").count() == 1
+
+
+def test_duration_chart_uses_date_labels_as_categories():
+    dashboard_path = Path(__file__).resolve().parents[1] / "dashboard" / "app.py"
+    spec = importlib.util.spec_from_file_location("dashboard_app", dashboard_path)
+    dashboard_app = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(dashboard_app)
+
+    frame = pd.DataFrame(
+        {
+            "date": [date(2026, 8, 20), date(2026, 8, 21)],
+            "avg_area_duration_seconds": [600.0, 900.0],
+            "sessions_used": [12, 8],
+        }
+    )
+
+    prepared = dashboard_app.prepare_duration_chart_view(frame)
+
+    assert prepared["date_label"].tolist() == ["2026-08-20", "2026-08-21"]
+    assert all(isinstance(value, str) for value in prepared["date_label"])
