@@ -23,12 +23,13 @@ def create_spark_session():
     return (
         SparkSession.builder
         .appName("BronzeKafkaConsumer")
-        .config("spark.jars.packages", "org.apache.spark:spark-sql-kafka-0-10_2.13:4.2.0")
-        #.config("spark.jars.packages", "org.apache.spark:spark-sql-kafka-0-10_2.12:3.5.0")
+        #.config("spark.jars.packages", "org.apache.spark:spark-sql-kafka-0-10_2.13:4.2.0")
+        .config("spark.jars.packages", "org.apache.spark:spark-sql-kafka-0-10_2.12:3.5.1")
         .config("spark.sql.shuffle.partitions", "4")
         .getOrCreate()
     )
-
+#docker exec -u 0 -it spark-master bash -c "mkdir -p /home/spark/.ivy2/cache && chmod -R 777 /home/spark"
+#docker exec -u root -it spark-master python /opt/spark/src/bronze.py
 
 def get_json_schema():
     return StructType([
@@ -61,6 +62,7 @@ def get_json_schema():
 
 
 def main():
+    #Path(BRONZE_OUTPUT_PATH).mkdir(parents=True, exist_ok=True)
     spark = create_spark_session()
     query = None
 

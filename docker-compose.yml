@@ -131,6 +131,7 @@ services:
   spark-master:
     image: apache/spark:3.5.1
     container_name: spark-master
+    user: root
     restart: unless-stopped
     command: bash -c "/opt/spark/bin/spark-class org.apache.spark.deploy.master.Master"
     environment:
@@ -149,6 +150,7 @@ services:
   spark-worker:
     image: apache/spark:3.5.1
     container_name: spark-worker
+    user: root
     restart: unless-stopped
     depends_on:
       - spark-master
