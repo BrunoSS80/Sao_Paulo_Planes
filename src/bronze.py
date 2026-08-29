@@ -23,13 +23,14 @@ def create_spark_session():
     return (
         SparkSession.builder
         .appName("BronzeKafkaConsumer")
+        .master("spark://spark-master:7077")
         #.config("spark.jars.packages", "org.apache.spark:spark-sql-kafka-0-10_2.13:4.2.0")
         .config("spark.jars.packages", "org.apache.spark:spark-sql-kafka-0-10_2.12:3.5.1")
         .config("spark.sql.shuffle.partitions", "4")
         .getOrCreate()
     )
 #docker exec -u 0 -it spark-master bash -c "mkdir -p /home/spark/.ivy2/cache && chmod -R 777 /home/spark"
-#docker exec -u root -it spark-master python /opt/spark/src/bronze.py
+#docker exec -u root -it spark-master python3 /opt/spark/src/bronze.py
 
 def get_json_schema():
     return StructType([

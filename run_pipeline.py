@@ -6,72 +6,73 @@ import sys
 import time
 from pathlib import Path
 
-
 PROJECT_ROOT = Path(__file__).resolve().parent
-SCRIPTS = ("producer.py", "bronze.py")
 processes = []
 
 
-def signal_processes(signal_number):
+def stop_processes(*_args):
+    print("\nEncerrando processos...", flush=True)
     for process in processes:
         if process.poll() is None:
+            process.terminate()
             try:
-                os.killpg(process.pid, signal_number)
-            except ProcessLookupError:
-                pass
-
-
-def stop_processes(*_args):
-    signal_processes(signal.SIGINT)
-
-    deadline = time.monotonic() + 10
-    while any(process.poll() is None for process in processes):
-        if time.monotonic() >= deadline:
-            signal_processes(signal.SIGKILL)
-            break
-            spark.stop()
-        time.sleep(0.1)
+                process.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                process.kill()
 
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Executa producer e bronze simultaneamente."
+        description="Executa producer localmente e bronze dentro do container Spark."
     )
     parser.add_argument(
         "--kafka-bootstrap-servers",
         default="localhost:9092",
-        help="Endereco do broker Kafka (padrao: localhost:9092).",
+        help="Endereco do broker Kafka para o producer local (padrao: localhost:9092).",
     )
     args = parser.parse_args()
 
-    environment = os.environ.copy()
-    environment["KAFKA_BOOTSTRAP_SERVERS"] = args.kafka_bootstrap_servers
+    
     signal.signal(signal.SIGINT, stop_processes)
     signal.signal(signal.SIGTERM, stop_processes)
 
-    for script in SCRIPTS:
-        process = subprocess.Popen(
-            [sys.executable, str(PROJECT_ROOT / "src" / script)],
-            cwd=PROJECT_ROOT,
-            env=environment,
-            start_new_session=True,
-        )
-        processes.append(process)
-        print(f"[{script}] iniciado (PID {process.pid})", flush=True)
+    
+    prod_env = os.environ.copy()
+    prod_env["KAFKA_BOOTSTRAP_SERVERS"] = args.kafka_bootstrap_servers
 
+    producer_proc = subprocess.Popen(
+        [sys.executable, str(PROJECT_ROOT / "src" / "producer.py")],
+        cwd=PROJECT_ROOT,
+        env=prod_env,
+    )
+    processes.append(producer_proc)
+    print(f"[producer.py] iniciado localmente (PID {producer_proc.pid})", flush=True)
+
+    
+    bronze_cmd = [
+        "docker", "exec",
+        "-u", "root",
+        "-it", "spark-master",
+        "python3", "/opt/spark/src/bronze.py"
+    ]
+
+    bronze_proc = subprocess.Popen(
+        bronze_cmd,
+        cwd=PROJECT_ROOT,
+    )
+    processes.append(bronze_proc)
+    print(f"[bronze.py] iniciado no container spark-master (PID {bronze_proc.pid})", flush=True)
+
+    # Loop de monitoramento
     try:
         while True:
-            for script, process in zip(SCRIPTS, processes):
-                return_code = process.poll()
-                if return_code is not None:
-                    if return_code != 0:
-                        print(
-                            f"[{script}] terminou com erro ({return_code}); "
-                            "encerrando os demais processos.",
-                            flush=True,
-                        )
+            for name, proc in [("producer.py", producer_proc), ("bronze.py", bronze_proc)]:
+                ret = proc.poll()
+                if ret is not None:
+                    if ret != 0:
+                        print(f"[{name}] finalizou com erro (código {ret}). Encerrando...", flush=True)
                     stop_processes()
-                    return return_code
+                    return ret
             time.sleep(1)
     finally:
         stop_processes()

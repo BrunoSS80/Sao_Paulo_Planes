@@ -24,6 +24,7 @@ BASE_REQUIRED_COLUMNS = {
 def create_spark_session(app_name: str, shuffle_partitions: int) -> SparkSession:
     return (
         SparkSession.builder
+        .master("spark://spark-master:7077")
         .appName(app_name)
         .config("spark.sql.shuffle.partitions", str(shuffle_partitions))
         .getOrCreate()
