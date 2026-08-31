@@ -63,7 +63,6 @@ def get_json_schema():
 
 
 def main():
-    #Path(BRONZE_OUTPUT_PATH).mkdir(parents=True, exist_ok=True)
     spark = create_spark_session()
     query = None
 

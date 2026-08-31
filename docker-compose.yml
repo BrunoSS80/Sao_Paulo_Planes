@@ -144,12 +144,14 @@ services:
       - PYTHONPATH=/opt/spark/python:/opt/spark/python/lib/py4j-0.10.9.7-src.zip
       - PYSPARK_PYTHON=python3
       - PYSPARK_DRIVER_PYTHON=python3
+      - SPARK_MASTER_OPTS=-Dspark.deploy.defaultCores=1
     ports:
       - "8081:8080" 
       - "7077:7077" 
     volumes:
       - ./src:/opt/spark/src
       - ./data:/opt/spark/data
+      - spark-ivy-cache:/root/.ivy2
 
   spark-worker:
     image: apache/spark:3.5.1
@@ -161,8 +163,8 @@ services:
     command: bash -c "mkdir -p /opt/spark/data && chmod -R 777 /opt/spark/data 2>/dev/null || true; /opt/spark/bin/spark-class org.apache.spark.deploy.worker.Worker spark://spark-master:7077"
     environment:
       - SPARK_HOME=/opt/spark
-      - SPARK_WORKER_CORES=2
-      - SPARK_WORKER_MEMORY=2g
+      - SPARK_WORKER_CORES=4
+      - SPARK_WORKER_MEMORY=4g
       - SPARK_NO_DAEMONIZE=true
       - PYTHONPATH=/opt/spark/python:/opt/spark/python/lib/py4j-0.10.9.7-src.zip
       - PYSPARK_PYTHON=python3
@@ -171,6 +173,7 @@ services:
     volumes:
       - ./src:/opt/spark/src
       - ./data:/opt/spark/data
+      - spark-ivy-cache:/root/.ivy2
     
   jupyter:
     image: jupyter/pyspark-notebook:latest
@@ -199,3 +202,4 @@ services:
 
 volumes:
   airflow-db-volume:
+  spark-ivy-cache:
