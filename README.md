@@ -199,7 +199,6 @@ Crie um arquivo `.env` na raiz do projeto (opcional para credenciais autenticada
 ```env
 ClientId=seu_client_id
 ClientSecret=seu_client_secret
-KAFKA_BOOTSTRAP_SERVERS=localhost:9092
 ```
 
 ---
